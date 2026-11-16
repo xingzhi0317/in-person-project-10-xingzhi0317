@@ -10,17 +10,26 @@ import { cachedFetch } from '../utils/asyncPatterns';
  * 4. Use caching to optimize performance
  */
 
-export async function fetchDashboardData(city) {
+export async function fetchDashboardData(city, onSettled) {
   const names = ['weather', 'forecast', 'news', 'alerts'];
 
   // Start all four requests at once; allSettled waits for every one, failed or not
   const results = await Promise.allSettled(
-    names.map(name =>
-      cachedFetch(
+    names.map(name => {
+      const promise = cachedFetch(
         `http://localhost:3001/${name}?city=${encodeURIComponent(city)}`,
         { timeout: 3000 }
-      )
-    )
+      );
+
+      // Tier 1: report each card as soon as its own request settles
+      if (onSettled) {
+        promise
+          .then(data => onSettled(name, data, null))
+          .catch(error => onSettled(name, null, error.message));
+      }
+
+      return promise;
+    })
   );
 
   const data = {};

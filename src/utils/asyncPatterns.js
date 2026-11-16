@@ -28,11 +28,19 @@ export async function fetchWithRetry(url, options = {}, maxRetries = 3) {
       const response = await fetch(url, { ...fetchOptions, signal: controller.signal });
 
       if (!response.ok) {
-        throw new Error(`HTTP ${response.status}`);
+        const error = new Error(`HTTP ${response.status}`);
+        error.status = response.status;
+        throw error;
       }
 
       return response;
     } catch (error) {
+      // Tier 3: a 4xx will never succeed, so fail at once without retrying
+      if (error.status >= 400 && error.status < 500) {
+        console.error(`Client error ${error.status}, not retrying: ${url}`);
+        throw error;
+      }
+
       if (attempt === maxRetries) {
         console.error(`Failed after ${maxRetries + 1} attempts: ${url}`);
         throw error;
@@ -185,10 +193,17 @@ export async function fetchAllParallel(requests) {
  * @returns {Promise<any>} - First successful response
  */
 export async function getFastestSource(urls) {
-  // TODO: Implement using Promise.race
-  // For now, just try the first URL
-  const response = await fetch(urls[0]);
-  return response.json();
+  // Start every request at once; each rejects on a non-2xx so an error page never "wins"
+  const attempts = urls.map(async url => {
+    const response = await fetch(url);
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}: ${url}`);
+    }
+    return response.json();
+  });
+
+  // Promise.any: the first one to *succeed* (rejects with AggregateError only if all fail)
+  return Promise.any(attempts);
 }
 
 /**

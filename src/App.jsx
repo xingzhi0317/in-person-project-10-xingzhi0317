@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import WeatherCard from './components/WeatherCard';
 import ForecastCard from './components/ForecastCard';
 import NewsCard from './components/NewsCard';
@@ -7,6 +7,7 @@ import SearchBar from './components/SearchBar';
 import StatusBar from './components/StatusBar';
 import { fetchDashboardData } from './services/dashboardService';
 import { usePolling } from './hooks/usePolling';
+import { fetchWithRetry, getFastestSource } from './utils/asyncPatterns';
 
 function App() {
   const [city, setCity] = useState('San Francisco');
@@ -29,19 +30,46 @@ function App() {
     alerts: null
   });
 
+  // The city of the most recent load: answers for an older city are ignored
+  const latestCityRef = useRef(city);
+
   const fetchAllData = async (cityName) => {
+    latestCityRef.current = cityName;
     setLoading({ weather: true, forecast: true, news: true, alerts: true });
 
-    const { data, errors } = await fetchDashboardData(cityName);
+    // Tier 1: fill each card as soon as its own request settles
+    const onSettled = (name, data, errorMessage) => {
+      if (latestCityRef.current !== cityName) return;
+      if (data) {
+        setDashboardData(prev => ({ ...prev, [name]: data }));
+      }
+      setErrors(prev => ({ ...prev, [name]: errorMessage }));
+      setLoading(prev => ({ ...prev, [name]: false }));
+    };
 
-    setDashboardData(prev => ({ ...prev, ...data }));
-    setErrors(errors);
-    setLoading({ weather: false, forecast: false, news: false, alerts: false });
+    // allSettled still tells us when every card is done
+    await fetchDashboardData(cityName, onSettled);
   };
 
   useEffect(() => {
     fetchAllData(city);
   }, [city]);
+
+  // Tier 2: the fastest of three sources with Promise.any
+  useEffect(() => {
+    const urls = [1, 2, 3].map(
+      n => `http://localhost:3001/weather-source${n}?city=${encodeURIComponent(city)}`
+    );
+    getFastestSource(urls)
+      .then(result => console.log('Fastest source:', result.source))
+      .catch(error => console.error('All sources failed:', error));
+  }, []);
+
+  // Tier 3: a 404 fails after one attempt, with no retry
+  useEffect(() => {
+    fetchWithRetry('http://localhost:3001/nope')
+      .catch(error => console.log(`No retry for client error: ${error.message}`));
+  }, []);
 
   usePolling(() => fetchAllData(city), 30000);
 
@@ -102,16 +130,16 @@ function App() {
         />
       </div>
 
-      {/* TODO: Add these features */}
+      {/* Async patterns implemented in this project */}
       <div className="card" style={{ marginTop: '20px' }}>
-        <h2>Problems to Fix:</h2>
+        <h2>Problems Fixed:</h2>
         <ul style={{ paddingLeft: '20px', color: '#666' }}>
-          <li>❌ No retry when requests fail (30% failure rate!)</li>
-          <li>❌ No caching (duplicate requests waste bandwidth)</li>
-          <li>❌ Sequential loading (should load in parallel)</li>
-          <li>❌ Race conditions in search (type fast and see wrong results)</li>
-          <li>❌ No request timeouts (can hang forever)</li>
-          <li>❌ No polling for updates</li>
+          <li>✅ Retry with exponential backoff (fetchWithRetry)</li>
+          <li>✅ 15s TTL cache + in-flight request dedup (cachedFetch)</li>
+          <li>✅ Parallel loading with Promise.allSettled, each card fills as it settles</li>
+          <li>✅ Debounced, cancellable search (useSearch + AbortController)</li>
+          <li>✅ 3s request timeout via AbortController</li>
+          <li>✅ Polling every 30s (usePolling)</li>
         </ul>
       </div>
     </div>
