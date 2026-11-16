@@ -18,24 +18,50 @@ export function useSearch(searchFn, delay = 500) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
 
-  // TODO: Add refs for abort controller and timeout
+  const abortControllerRef = useRef(null);
+  const timeoutRef = useRef(null);
 
-  const search = useCallback(async (query) => {
-    // TODO: Implement debounced search with cancellation
-    // For now, just call the search function directly
-    setLoading(true);
-    try {
-      const data = await searchFn(query);
-      setResults(data);
-    } catch (err) {
-      setError(err.message);
-    } finally {
+  const search = useCallback((query) => {
+    // A new keystroke: drop the timer and the request of the previous one
+    clearTimeout(timeoutRef.current);
+    abortControllerRef.current?.abort();
+
+    if (!query) {
+      setResults(null);
       setLoading(false);
+      return;
     }
-  }, [searchFn]);
+
+    // Debounce: wait until the typing pauses for `delay` ms
+    timeoutRef.current = setTimeout(async () => {
+      const controller = new AbortController();
+      abortControllerRef.current = controller;
+
+      setLoading(true);
+      setError(null);
+
+      try {
+        const data = await searchFn(query, controller.signal);
+        if (!controller.signal.aborted) {
+          setResults(data);
+        }
+      } catch (err) {
+        if (err.name !== 'AbortError') {
+          setError(err.message);
+          setResults(null);
+        }
+      } finally {
+        if (!controller.signal.aborted) {
+          setLoading(false);
+        }
+      }
+    }, delay);
+  }, [searchFn, delay]);
 
   const cancel = useCallback(() => {
-    // TODO: Implement cancellation
+    clearTimeout(timeoutRef.current);
+    abortControllerRef.current?.abort();
+    setLoading(false);
   }, []);
 
   return { results, loading, error, search, cancel };

@@ -1,39 +1,29 @@
 import React, { useState } from 'react';
+import { useSearch } from '../hooks/useSearch';
+
+// Defined outside the component so it is the same function on every render
+async function searchCities(query, signal) {
+  const response = await fetch(
+    `http://localhost:3001/search?q=${encodeURIComponent(query)}`,
+    { signal }
+  );
+  const data = await response.json();
+  return data.results;
+}
 
 function SearchBar({ onCityChange }) {
   const [query, setQuery] = useState('');
-  const [suggestions, setSuggestions] = useState([]);
-  const [loading, setLoading] = useState(false);
+  const { results, loading, search } = useSearch(searchCities, 300);
+  const suggestions = results || [];
 
-  // PROBLEM: No debouncing, causes race conditions
-  const handleSearch = async (value) => {
+  const handleSearch = (value) => {
     setQuery(value);
-
-    if (!value) {
-      setSuggestions([]);
-      return;
-    }
-
-    setLoading(true);
-
-    try {
-      // PROBLEM: No cancellation of previous requests
-      const response = await fetch(`http://localhost:3001/search?q=${value}`);
-      const data = await response.json();
-
-      // PROBLEM: Results might arrive out of order
-      setSuggestions(data.results);
-    } catch (error) {
-      console.error('Search failed:', error);
-      setSuggestions([]);
-    } finally {
-      setLoading(false);
-    }
+    search(value);
   };
 
   const handleSelectCity = (city) => {
     setQuery(city);
-    setSuggestions([]);
+    search('');
     onCityChange(city);
   };
 
