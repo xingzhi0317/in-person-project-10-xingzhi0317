@@ -1,0 +1,263 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Test Async Patterns</title>
+    <style>
+        body {
+            font-family: system-ui, -apple-system, sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        h1 {
+            color: #667eea;
+        }
+        .test-section {
+            background: white;
+            border-radius: 8px;
+            padding: 20px;
+            margin: 20px 0;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        button {
+            background: #667eea;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 5px;
+            cursor: pointer;
+            margin-right: 10px;
+        }
+        button:hover {
+            background: #5a67d8;
+        }
+        .result {
+            margin-top: 15px;
+            padding: 15px;
+            background: #f8f9fa;
+            border-radius: 5px;
+            font-family: monospace;
+            white-space: pre-wrap;
+        }
+        .success {
+            background: #d4edda;
+            color: #155724;
+        }
+        .error {
+            background: #f8d7da;
+            color: #721c24;
+        }
+        .loading {
+            background: #cfe2ff;
+            color: #084298;
+        }
+    </style>
+</head>
+<body>
+    <h1>Async Patterns Test Suite</h1>
+
+    <div class="test-section">
+        <h2>Test 1: Retry with Exponential Backoff</h2>
+        <p>This endpoint has a 30% failure rate. Watch the retry logic in action.</p>
+        <button onclick="testRetry()">Test Retry</button>
+        <div id="retry-result" class="result"></div>
+    </div>
+
+    <div class="test-section">
+        <h2>Test 2: Request Caching</h2>
+        <p>Make the same request twice. The second should be instant (cached).</p>
+        <button onclick="testCache()">Test Cache</button>
+        <div id="cache-result" class="result"></div>
+    </div>
+
+    <div class="test-section">
+        <h2>Test 3: Promise.race - Fastest Source</h2>
+        <p>Race three sources and use the fastest one.</p>
+        <button onclick="testRace()">Test Race</button>
+        <div id="race-result" class="result"></div>
+    </div>
+
+    <div class="test-section">
+        <h2>Test 4: Promise.allSettled - Partial Failures</h2>
+        <p>Fetch from 4 services in parallel. Some will fail but we still get results.</p>
+        <button onclick="testAllSettled()">Test AllSettled</button>
+        <div id="allsettled-result" class="result"></div>
+    </div>
+
+    <div class="test-section">
+        <h2>Test 5: Search Debouncing</h2>
+        <p>Type quickly in the input. Only the last search should execute.</p>
+        <input type="text" id="search-input" placeholder="Type city names quickly..." style="padding: 10px; width: 300px;">
+        <div id="search-result" class="result"></div>
+    </div>
+
+    <script type="module">
+        // Import your async patterns here
+        // import { fetchWithRetry, cachedFetch, getFastestSource, fetchAllParallel } from './src/utils/asyncPatterns.js';
+
+        // Mock implementations for testing
+        async function fetchWithRetry(url, options = {}, maxRetries = 3) {
+            const { timeout = 5000 } = options;
+
+            for (let attempt = 0; attempt <= maxRetries; attempt++) {
+                try {
+                    const controller = new AbortController();
+                    const timeoutId = setTimeout(() => controller.abort(), timeout);
+
+                    const response = await fetch(url, {
+                        ...options,
+                        signal: controller.signal
+                    });
+
+                    clearTimeout(timeoutId);
+
+                    if (!response.ok) {
+                        throw new Error(`HTTP ${response.status}`);
+                    }
+
+                    return response;
+                } catch (error) {
+                    if (attempt === maxRetries) {
+                        throw error;
+                    }
+                    const delay = Math.pow(2, attempt) * 1000;
+                    console.log(`Retry ${attempt + 1} after ${delay}ms`);
+                    await new Promise(r => setTimeout(r, delay));
+                }
+            }
+        }
+
+        // Test functions
+        window.testRetry = async function() {
+            const resultDiv = document.getElementById('retry-result');
+            resultDiv.className = 'result loading';
+            resultDiv.textContent = 'Testing retry logic...';
+
+            try {
+                const startTime = Date.now();
+                const response = await fetchWithRetry('http://localhost:3001/weather?city=TestCity');
+                const data = await response.json();
+                const elapsed = Date.now() - startTime;
+
+                resultDiv.className = 'result success';
+                resultDiv.textContent = `Success after ${elapsed}ms!\n${JSON.stringify(data, null, 2)}`;
+            } catch (error) {
+                resultDiv.className = 'result error';
+                resultDiv.textContent = `Failed: ${error.message}`;
+            }
+        };
+
+        window.testCache = async function() {
+            const resultDiv = document.getElementById('cache-result');
+            resultDiv.className = 'result loading';
+            resultDiv.textContent = 'Testing cache...';
+
+            try {
+                // First request
+                const start1 = Date.now();
+                const response1 = await fetch('http://localhost:3001/weather?city=CacheTest');
+                const data1 = await response1.json();
+                const time1 = Date.now() - start1;
+
+                // Second request (should be cached if implemented)
+                const start2 = Date.now();
+                const response2 = await fetch('http://localhost:3001/weather?city=CacheTest');
+                const data2 = await response2.json();
+                const time2 = Date.now() - start2;
+
+                resultDiv.className = 'result success';
+                resultDiv.textContent = `First request: ${time1}ms\nSecond request: ${time2}ms\n\n${
+                    time2 < time1 / 2 ? '✅ Cache working!' : '❌ Cache not implemented'
+                }`;
+            } catch (error) {
+                resultDiv.className = 'result error';
+                resultDiv.textContent = `Failed: ${error.message}`;
+            }
+        };
+
+        window.testRace = async function() {
+            const resultDiv = document.getElementById('race-result');
+            resultDiv.className = 'result loading';
+            resultDiv.textContent = 'Racing multiple sources...';
+
+            try {
+                const sources = [
+                    fetch('http://localhost:3001/weather-source1?city=RaceTest'),
+                    fetch('http://localhost:3001/weather-source2?city=RaceTest'),
+                    fetch('http://localhost:3001/weather-source3?city=RaceTest')
+                ];
+
+                const startTime = Date.now();
+                const fastest = await Promise.race(sources);
+                const data = await fastest.json();
+                const elapsed = Date.now() - startTime;
+
+                resultDiv.className = 'result success';
+                resultDiv.textContent = `Fastest source responded in ${elapsed}ms:\n${JSON.stringify(data, null, 2)}`;
+            } catch (error) {
+                resultDiv.className = 'result error';
+                resultDiv.textContent = `Failed: ${error.message}`;
+            }
+        };
+
+        window.testAllSettled = async function() {
+            const resultDiv = document.getElementById('allsettled-result');
+            resultDiv.className = 'result loading';
+            resultDiv.textContent = 'Fetching from multiple services...';
+
+            try {
+                const requests = [
+                    fetch('http://localhost:3001/weather?city=Test').then(r => r.json()),
+                    fetch('http://localhost:3001/forecast?city=Test').then(r => r.json()),
+                    fetch('http://localhost:3001/news?city=Test').then(r => r.json()),
+                    fetch('http://localhost:3001/alerts?city=Test').then(r => r.json())
+                ];
+
+                const results = await Promise.allSettled(requests);
+                const summary = results.map((r, i) => {
+                    const service = ['weather', 'forecast', 'news', 'alerts'][i];
+                    return `${service}: ${r.status === 'fulfilled' ? '✅ Success' : '❌ Failed'}`;
+                }).join('\n');
+
+                resultDiv.className = 'result success';
+                resultDiv.textContent = `Results:\n${summary}\n\nPromise.allSettled ensures we get all results even if some fail!`;
+            } catch (error) {
+                resultDiv.className = 'result error';
+                resultDiv.textContent = `Failed: ${error.message}`;
+            }
+        };
+
+        // Search debouncing test
+        let searchTimeout;
+        let searchCount = 0;
+
+        document.getElementById('search-input').addEventListener('input', (e) => {
+            clearTimeout(searchTimeout);
+            searchCount++;
+            const currentCount = searchCount;
+
+            const resultDiv = document.getElementById('search-result');
+            resultDiv.className = 'result loading';
+            resultDiv.textContent = `Debouncing... (input #${currentCount})`;
+
+            searchTimeout = setTimeout(async () => {
+                try {
+                    const response = await fetch(`http://localhost:3001/search?q=${e.target.value}`);
+                    const data = await response.json();
+
+                    resultDiv.className = 'result success';
+                    resultDiv.textContent = `Search executed for input #${currentCount}\n${
+                        currentCount < searchCount ? '✅ Previous searches cancelled!' : ''
+                    }\nResults: ${JSON.stringify(data.results, null, 2)}`;
+                } catch (error) {
+                    resultDiv.className = 'result error';
+                    resultDiv.textContent = `Failed: ${error.message}`;
+                }
+            }, 300);
+        });
+    </script>
+</body>
+</html>
