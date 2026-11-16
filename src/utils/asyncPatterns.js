@@ -17,9 +17,35 @@
  * @returns {Promise<Response>} - The fetch response
  */
 export async function fetchWithRetry(url, options = {}, maxRetries = 3) {
-  // TODO: Implement retry logic with exponential backoff
-  // For now, just do a basic fetch
-  return fetch(url, options);
+  const { timeout = 5000, ...fetchOptions } = options;
+
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    // A fresh AbortController per attempt: it cancels the fetch if it takes too long
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), timeout);
+
+    try {
+      const response = await fetch(url, { ...fetchOptions, signal: controller.signal });
+
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
+      }
+
+      return response;
+    } catch (error) {
+      if (attempt === maxRetries) {
+        console.error(`Failed after ${maxRetries + 1} attempts: ${url}`);
+        throw error;
+      }
+
+      // Exponential backoff: 1s, 2s, 4s
+      const delay = Math.pow(2, attempt) * 1000;
+      console.log(`Retry attempt ${attempt + 1} after ${delay}ms: ${url}`);
+      await new Promise(resolve => setTimeout(resolve, delay));
+    } finally {
+      clearTimeout(timeoutId);
+    }
+  }
 }
 
 /**
