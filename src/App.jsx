@@ -5,11 +5,10 @@ import NewsCard from './components/NewsCard';
 import AlertsCard from './components/AlertsCard';
 import SearchBar from './components/SearchBar';
 import StatusBar from './components/StatusBar';
-import { fetchWithRetry } from './utils/asyncPatterns';
+import { cachedFetch } from './utils/asyncPatterns';
 
 async function basicFetch(url) {
-  const response = await fetchWithRetry(url, { timeout: 3000 });
-  return response.json();
+  return cachedFetch(url, { timeout: 3000 });
 }
 
 function App() {

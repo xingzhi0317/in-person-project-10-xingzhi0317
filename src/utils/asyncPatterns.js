@@ -58,22 +58,33 @@ export async function fetchWithRetry(url, options = {}, maxRetries = 3) {
  */
 class RequestCache {
   constructor(ttl = 60000) {
-    // TODO: Initialize cache storage and TTL
+    this.cache = new Map();
+    this.ttl = ttl;
   }
 
   set(key, value) {
-    // TODO: Store value with timestamp
+    this.cache.set(key, { value, timestamp: Date.now() });
   }
 
   get(key) {
-    // TODO: Return value if not expired, null otherwise
-    return null;
+    const entry = this.cache.get(key);
+    if (!entry) return null;
+
+    const age = Date.now() - entry.timestamp;
+    if (age > this.ttl) {
+      this.cache.delete(key);
+      return null;
+    }
+
+    return entry.value;
   }
 
   clear() {
-    // TODO: Clear all cache entries
+    this.cache.clear();
   }
 }
+
+const cache = new RequestCache(15000); // answers stay fresh for 15 seconds
 
 /**
  * TODO: Implement cachedFetch
@@ -89,10 +100,32 @@ class RequestCache {
  * @returns {Promise<any>} - Parsed JSON response
  */
 export async function cachedFetch(url, options = {}) {
-  // TODO: Implement caching and deduplication
-  // For now, just do a basic fetch
-  const response = await fetch(url, options);
-  return response.json();
+  // 1. A fresh answer in the cache: no request at all
+  const cached = cache.get(url);
+  if (cached) {
+    console.log('Cache hit:', url);
+    return { ...cached, cached: true };
+  }
+
+  // 2. The same request is already on its way: share its promise
+  if (pendingRequests.has(url)) {
+    console.log('Request deduped:', url);
+    return pendingRequests.get(url);
+  }
+
+  // 3. Otherwise make the request, remember the answer, forget the pending entry
+  const requestPromise = fetchWithRetry(url, options)
+    .then(response => response.json())
+    .then(data => {
+      cache.set(url, data);
+      return data;
+    })
+    .finally(() => {
+      pendingRequests.delete(url);
+    });
+
+  pendingRequests.set(url, requestPromise);
+  return requestPromise;
 }
 
 /**
